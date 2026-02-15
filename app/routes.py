@@ -1,110 +1,111 @@
-from flask import Blueprint, render_template_string, request, redirect, url_for
-from flask_login import login_user, login_required, logout_user, current_user
-from .models import User, Workout
-from . import db
+from flask import Blueprint, render_template, redirect, url_for, request, flash
+from flask_login import login_user, logout_user, login_required, current_user
+from app.models import User, Workout, db
+from werkzeug.security import generate_password_hash, check_password_hash
 
-main = Blueprint('main', __name__)
-
+main = Blueprint("main", __name__)
 
 @main.route("/")
 def home():
-    return "Gym Tracker App is Live"
+    return redirect(url_for("main.login"))
 
-
+# ---------------- REGISTER ----------------
 @main.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
 
+        if not username or not password:
+            flash("All fields are required")
+            return redirect(url_for("main.register"))
+
         existing_user = User.query.filter_by(username=username).first()
         if existing_user:
-            return "User already exists"
+            flash("Username already exists")
+            return redirect(url_for("main.register"))
 
-        user = User(username=username)
-        user.set_password(password)
-
-        db.session.add(user)
+        hashed_password = generate_password_hash(password)
+        new_user = User(username=username, password=hashed_password)
+        db.session.add(new_user)
         db.session.commit()
 
         return redirect(url_for("main.login"))
 
-    return render_template_string("""
-        <h2>Register</h2>
-        <form method="POST">
-            Username: <input name="username"><br>
-            Password: <input name="password" type="password"><br>
-            <button type="submit">Register</button>
-        </form>
-    """)
+    return render_template("register.html")
 
 
+# ---------------- LOGIN ----------------
 @main.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
 
+        if not username or not password:
+            flash("All fields required")
+            return redirect(url_for("main.login"))
+
         user = User.query.filter_by(username=username).first()
 
-        if user and user.check_password(password):
+        if user and check_password_hash(user.password, password):
             login_user(user)
             return redirect(url_for("main.dashboard"))
+        else:
+            flash("Invalid credentials")
+            return redirect(url_for("main.login"))
 
-        return "Invalid credentials"
-
-    return render_template_string("""
-        <h2>Login</h2>
-        <form method="POST">
-            Username: <input name="username"><br>
-            Password: <input name="password" type="password"><br>
-            <button type="submit">Login</button>
-        </form>
-    """)
+    return render_template("login.html")
 
 
+# ---------------- DASHBOARD ----------------
 @main.route("/dashboard", methods=["GET", "POST"])
 @login_required
 def dashboard():
+
     if request.method == "POST":
         exercise = request.form.get("exercise")
         reps = request.form.get("reps")
         weight = request.form.get("weight")
 
-        workout = Workout(
+        if not exercise or not reps or not weight:
+            flash("All workout fields required")
+            return redirect(url_for("main.dashboard"))
+
+        new_workout = Workout(
             exercise=exercise,
             reps=int(reps),
             weight=float(weight),
             user_id=current_user.id
         )
 
-        db.session.add(workout)
+        db.session.add(new_workout)
         db.session.commit()
 
+        return redirect(url_for("main.dashboard"))
+
     workouts = Workout.query.filter_by(user_id=current_user.id).all()
-
-    return render_template_string("""
-        <h2>Welcome {{ current_user.username }}</h2>
-
-        <form method="POST">
-            Exercise: <input name="exercise"><br>
-            Reps: <input name="reps"><br>
-            Weight: <input name="weight"><br>
-            <button type="submit">Add Workout</button>
-        </form>
-
-        <h3>Your Workouts</h3>
-        {% for w in workouts %}
-            <p>{{ w.exercise }} - {{ w.reps }} reps - {{ w.weight }} kg</p>
-        {% endfor %}
-
-        <br>
-        <a href="/logout">Logout</a>
-    """, workouts=workouts)
+    return render_template("dashboard.html", workouts=workouts)
 
 
+# ---------------- DELETE ----------------
+@main.route("/delete/<int:id>")
+@login_required
+def delete_workout(id):
+    workout = Workout.query.get_or_404(id)
+
+    if workout.user_id != current_user.id:
+        return redirect(url_for("main.dashboard"))
+
+    db.session.delete(workout)
+    db.session.commit()
+
+    return redirect(url_for("main.dashboard"))
+
+
+# ---------------- LOGOUT ----------------
 @main.route("/logout")
 @login_required
 def logout():
     logout_user()
-    return redirect(url_for("main.home"))
+    return redirect(url_for("main.login"))
