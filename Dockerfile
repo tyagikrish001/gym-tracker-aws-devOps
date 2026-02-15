@@ -10,4 +10,4 @@ COPY . .
 
 EXPOSE 5000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:${PORT}", "run:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:10000", "run:app"]
